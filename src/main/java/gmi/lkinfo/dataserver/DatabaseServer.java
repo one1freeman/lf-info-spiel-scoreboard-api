@@ -1,3 +1,5 @@
+package gmi.lkinfo.dataserver;
+
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -10,9 +12,9 @@ import java.util.ArrayList;
 import java.net.ServerSocket;
 
 public class DatabaseServer{
-    private static String dbPassword = "nohax123";
-    private static String dbUrl = "172.17.0.2";
-    private static String dbUsername = "client";
+    private static String DB_PASSWORD = "nohax123";
+    private static String HOST = "172.17.0.2";
+    private static String DB_USERNAME = "client";
 
     private Socket socket;
     private ServerSocket server;
@@ -96,7 +98,7 @@ public class DatabaseServer{
     }
 
     private boolean updateData() {
-        try (Connection conn = DriverManager.getConnection(this.dbUrl, this.dbUsername, this.dbPassword)) {
+        try (Connection conn = DriverManager.getConnection(HOST, DB_USERNAME, DB_PASSWORD)) {
             
             PreparedStatement statement;
             ResultSet rs;
@@ -139,7 +141,7 @@ public class DatabaseServer{
     }
 
     private boolean setHighscore (String username, int newHighscore) {
-        try (Connection conn = DriverManager.getConnection(this.dbUrl, this.dbUsername, this.dbPassword)) {
+        try (Connection conn = DriverManager.getConnection(this.HOST, this.DB_USERNAME, this.DB_PASSWORD)) {
             
             PreparedStatement statement;
             ResultSet rs;
