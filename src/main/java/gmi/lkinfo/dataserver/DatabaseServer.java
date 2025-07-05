@@ -3,6 +3,7 @@ package gmi.lkinfo.dataserver;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.net.Socket;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -13,7 +14,7 @@ import java.net.ServerSocket;
 
 public class DatabaseServer{
     private static String DB_PASSWORD = "nohax123";
-    private static String HOST = "172.17.0.2";
+    private static String HOST = "jdbc:mariadb://172.17.0.2:3306/game";
     private static String DB_USERNAME = "client";
 
     private Socket socket;
@@ -31,6 +32,9 @@ public class DatabaseServer{
         highscores = new ArrayList<>();
     }
     
+    /**
+     * Loop für das Bearbeiten von allen Netzanfragen
+     */
     public void run() {
         System.out.println("Hello World!");
         try {
@@ -48,7 +52,7 @@ public class DatabaseServer{
             try {
                 System.out.println("Auf Client warten");
                 socket = server.accept();
-                System.out.println("Client verbunden!");
+                System.out.println("Client verbunden: " + socket.getInetAddress().getHostAddress());
 
                 in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
                 out = new DataOutputStream(socket.getOutputStream());
@@ -57,6 +61,7 @@ public class DatabaseServer{
                 System.out.println(line);
                 
                 line = in.readUTF();
+                System.out.println(line);
                 if(line.equals("$getdata")) {
                     if (updateData()) {
                         out.writeUTF("1000");
@@ -64,20 +69,28 @@ public class DatabaseServer{
                     } else {
                         out.writeUTF("1002");
                     }
-                } else if (line.equals("$sethighscore")){
+                } else if (line.equals("$sethighscore")){           // 
                     String username = in.readUTF();
+                    System.out.println(username);
                     int newHighscore = Integer.parseInt(in.readUTF());
-                    if (setHighscore(username, newHighscore)) {
-                        out.writeUTF("1000");
-                    } else {
-                        out.writeUTF("1002");
-                    }
+                    System.out.println(newHighscore);
+                    int highscoreError = setHighscore(username, newHighscore);
+                    error = highscoreError == 2;
+                    Thread.sleep(200);
+                    out.writeUTF(String.valueOf(1000 + highscoreError));
+                } else {
+                    error = true;
                 }
 
-                System.out.println("Client Served: " + socket.getInetAddress().getHostAddress());
+                if (!error) {
+                    System.out.println("Client Served: " + socket.getInetAddress().getHostAddress());
+                } else {
+                    System.out.println("Some Error occured with: " + socket.getInetAddress().getHostAddress());
+                }
 
                 socket.close();
                 in.close();
+                out.close();
                 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -97,6 +110,10 @@ public class DatabaseServer{
         }
     }
 
+    /**
+     * Holt alle Daten vom DatenbankServer ein
+     * @return Erfolgreich?
+     */
     private boolean updateData() {
         try (Connection conn = DriverManager.getConnection(HOST, DB_USERNAME, DB_PASSWORD)) {
             
@@ -110,6 +127,8 @@ public class DatabaseServer{
             rs = statement.executeQuery();
 
             // aus allen verfügbaren zeilen werden die daten gespeichert
+            usernames.clear();
+            highscores.clear();
             while (rs.next()) {
                 usernames.add(rs.getString("username"));
                 highscores.add(rs.getInt("highscore"));
@@ -124,45 +143,53 @@ public class DatabaseServer{
         return true;
     }
 
-    private void sendData() {
-        try {
-            for (int i = 0; i < usernames.size(); i++) {
-                out.writeUTF(usernames.get(i));
-            }
-            out.writeUTF("$endusernames");
-
-            for (int i = 0; i < highscores.size(); i++) {
-                out.writeUTF(String.valueOf(highscores.get(i)));
-            }
-            out.writeUTF("$endhighscores");
-        } catch (Exception e) {
-            e.printStackTrace();
+    private void sendData() throws IOException {
+        for (int i = 0; i < usernames.size(); i++) {
+            out.writeUTF(usernames.get(i));
         }
+        out.writeUTF("$endusernames");
+
+        for (int i = 0; i < highscores.size(); i++) {
+           out.writeUTF(String.valueOf(highscores.get(i)));
+        }
+        out.writeUTF("$endhighscores");
     }
 
-    private boolean setHighscore (String username, int newHighscore) {
-        try (Connection conn = DriverManager.getConnection(this.HOST, this.DB_USERNAME, this.DB_PASSWORD)) {
+
+    /**
+     * Setzt für einen Benutzer einen neuen Highscore in der Datenbank, wenn der neue Highscore größer ist, als der alte Wert
+     * @param username
+     * @param newHighscore
+     * @return Fehlercode (0 - ok
+     *                     2 - Fehler mit Datenbankverbindung
+     *                     4 - Nickname ist bererits höherer Highscore zugeordnet)
+     */
+    private int setHighscore (String username, int newHighscore) {
+        int error = 0;
+        try (Connection conn = DriverManager.getConnection(HOST, DB_USERNAME, DB_PASSWORD)) {
             
             PreparedStatement statement;
             ResultSet rs;
 
             
             // Befehl wird vorbereitet und ausgeführt
-            statement = conn.prepareStatement("get highscore from users where username = '" + username + "';");
+            statement = conn.prepareStatement("select highscore from users where username = '" + username + "';");
             rs = statement.executeQuery();
 
-            rs.next();
-            if (rs.getInt("highscore") > newHighscore) {
-                statement = conn.prepareStatement("insert into users values ('" + username + "', " + newHighscore +");");
+            // wenn es bereits einen Eintrag gibt muss überprüft werden, ob er kleiner als der neue wert ist
+            if (rs.next() && rs.getInt("highscore") >= newHighscore) {
+                error = 4;
+            } else {
+                statement = conn.prepareStatement("replace into users values ('" + username + "', " + newHighscore +");");
                 rs = statement.executeQuery();
             }
 
             conn.close();
         } catch (Exception e) {
             e.printStackTrace();
-            return false;
+            error = 2;
         }
 
-        return true;
+        return error;
     }
 }
